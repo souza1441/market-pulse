@@ -1,6 +1,6 @@
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=60');
 
@@ -23,7 +23,7 @@ export default async function handler(req, res) {
       headers: { 'User-Agent': UA, 'Cookie': cookie }
     });
     crumb = await r2.text();
-  } catch {}
+  } catch (_) {}
 
   // Step 2: batch quote request
   try {
@@ -44,4 +44,4 @@ export default async function handler(req, res) {
   } catch (err) {
     return res.status(502).json({ error: err.message });
   }
-}
+};
