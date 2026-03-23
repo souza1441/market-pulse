@@ -419,19 +419,14 @@ const FRED_SERIES = [
 let fredKey = localStorage.getItem('fredKey') || '';
 const yieldData = {};  // store raw yield prices for curve calc
 
-// ─── Batch fetch (one request for all symbols) ─────────────────
-const PROXY = 'https://api.allorigins.win/get?url=';
-const YF_QUOTE = 'https://query1.finance.yahoo.com/v7/finance/quote?fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent&symbols=';
-
-let quoteCache = {};  // symbol -> { price, change, pct }
+// ─── Batch fetch via Vercel API route ──────────────────────────
+let quoteCache = {};
 
 async function fetchAllQuotes() {
   const allSymbols = [...INDEXES, ...TREASURIES, ...CREDIT, ...PRIVATE].map(i => i.s);
-  const url = YF_QUOTE + encodeURIComponent(allSymbols.join(','));
   try {
-    const res  = await fetch(PROXY + encodeURIComponent(url));
-    const wrap = await res.json();
-    const data = JSON.parse(wrap.contents);
+    const res  = await fetch('/api/quotes?symbols=' + encodeURIComponent(allSymbols.join(',')));
+    const data = await res.json();
     const results = data.quoteResponse?.result ?? [];
     const map = {};
     results.forEach(r => {
