@@ -85,45 +85,6 @@
     /* ── Main ── */
     main{padding:28px;max-width:1700px;margin:0 auto}
 
-    /* ── FRED banner ── */
-    .fred-banner{
-      background:var(--accent-dim);
-      border:1px solid var(--accent);
-      border-radius:8px;
-      padding:14px 20px;
-      margin-bottom:28px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:16px;
-      font-size:12px;
-      flex-wrap:wrap;
-    }
-    .fred-banner a{color:var(--accent);text-decoration:none}
-    .fred-banner a:hover{text-decoration:underline}
-    .fred-input-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    .fred-banner input{
-      background:var(--bg);
-      border:1px solid var(--border);
-      color:var(--text);
-      padding:6px 12px;
-      border-radius:4px;
-      font-family:inherit;
-      font-size:12px;
-      width:300px;
-      outline:none;
-    }
-    .fred-banner input:focus{border-color:var(--accent)}
-    .fred-banner button{
-      background:var(--accent);
-      color:#fff;
-      border:none;
-      padding:6px 16px;
-      border-radius:4px;
-      cursor:pointer;
-      font-family:inherit;
-      font-size:12px;
-    }
 
     /* ── Section ── */
     .section{margin-bottom:36px}
@@ -286,7 +247,6 @@
       main{padding:16px}
       .cards{grid-template-columns:repeat(2,1fr)}
       .logo{font-size:14px;letter-spacing:2px}
-      .fred-banner input{width:100%}
     }
     @media(max-width:430px){
       .cards{grid-template-columns:1fr}
@@ -308,18 +268,6 @@
 </header>
 
 <main>
-
-  <!-- FRED Key Banner -->
-  <div class="fred-banner" id="fredBanner">
-    <span>
-      📊 Add a free <strong>FRED API key</strong> to unlock economic data (unemployment, payrolls, CPI, Fed rate).<br>
-      <a href="https://fred.stlouisfed.org/docs/api/api_key.html" target="_blank">Get your free key in 30 seconds →</a>
-    </span>
-    <div class="fred-input-row">
-      <input id="fredInput" type="text" placeholder="Paste FRED API key here…" />
-      <button onclick="saveFred()">Save Key</button>
-    </div>
-  </div>
 
   <!-- ── MAJOR INDEXES ── -->
   <div class="section">
@@ -406,17 +354,7 @@ const PRIVATE = [
   { s:'BXSL', name:'Blackstone SL',  desc:'Blackstone secured lending' },
 ];
 
-const FRED_SERIES = [
-  { id:'UNRATE',   label:'Unemployment',   suffix:'%',   desc:'Latest monthly rate' },
-  { id:'PAYEMS',   label:'Nonfarm Payrolls',suffix:'K',  div:1000, desc:'Total employed (000s)' },
-  { id:'CPIAUCSL', label:'CPI Index',      suffix:'',    desc:'All-Urban Consumer Price Index' },
-  { id:'FEDFUNDS', label:'Fed Funds Rate', suffix:'%',   desc:'Current policy rate' },
-  { id:'JTSJOL',   label:'Job Openings',   suffix:'M',   div:1000, desc:'JOLTS openings (millions)' },
-  { id:'DGORDER',  label:'Durable Goods',  suffix:'B',   div:1000, desc:'Orders in $B (millions raw)' },
-];
-
 // ─── State ─────────────────────────────────────────────────────
-let fredKey = localStorage.getItem('fredKey') || '';
 const yieldData = {};  // store raw yield prices for curve calc
 
 // ─── Batch fetch via Vercel API route ──────────────────────────
@@ -524,51 +462,29 @@ function updateYieldCurve() {
     <span class="yc-spread">&nbsp; 3M: ${t3m.toFixed(2)}% · 10Y: ${t10y.toFixed(2)}% · Spread: ${spread}% (${bps >= 0 ? '+' : ''}${bps} bps)</span>`;
 }
 
-// ─── FRED ──────────────────────────────────────────────────────
+// ─── FRED (server-side via /api/fred) ──────────────────────────
 async function fetchFred() {
   const box = document.getElementById('eco-grid');
-  if (!fredKey) {
-    box.innerHTML = `<div class="eco-empty">
-      <div style="font-size:28px;margin-bottom:8px">🔑</div>
-      <div>Enter a free FRED API key above to unlock economic indicators.</div>
-      <div style="margin-top:6px">Unemployment · Payrolls · CPI · Fed Rate · JOLTS · Durable Goods</div>
-    </div>`;
-    return;
-  }
-
   box.innerHTML = `<div class="eco-empty" style="padding:24px">Loading economic data…</div>`;
-
-  const results = await Promise.allSettled(
-    FRED_SERIES.map(s =>
-      fetch(`https://api.stlouisfed.org/fred/series/observations?series_id=${s.id}&api_key=${fredKey}&sort_order=desc&limit=2&file_type=json`)
-        .then(r => r.json())
-    )
-  );
-
-  box.innerHTML = '';
-  FRED_SERIES.forEach((s, i) => {
-    const el = document.createElement('div');
-    el.className = 'eco-card';
-
-    try {
-      const obs = results[i].value?.observations;
-      const latest = obs?.[0];
-      if (!latest || latest.value === '.') throw new Error();
-      let raw = parseFloat(latest.value);
-      let display = s.div ? (raw / s.div).toFixed(1) + s.suffix : raw.toFixed(2) + s.suffix;
-
-      el.innerHTML = `
-        <div class="eco-lbl">${s.label}</div>
-        <div class="eco-val">${display}</div>
-        <div class="eco-sub">${s.desc} · As of ${latest.date}</div>`;
-    } catch {
-      el.innerHTML = `
-        <div class="eco-lbl">${s.label}</div>
-        <div class="eco-val nt">—</div>
-        <div class="eco-sub">Check API key or series ID</div>`;
-    }
-    box.appendChild(el);
-  });
+  try {
+    const res  = await fetch('/api/fred');
+    const { data } = await res.json();
+    box.innerHTML = '';
+    data.forEach(s => {
+      const el = document.createElement('div');
+      el.className = 'eco-card';
+      el.innerHTML = s.display
+        ? `<div class="eco-lbl">${s.label}</div>
+           <div class="eco-val">${s.display}</div>
+           <div class="eco-sub">${s.desc} · As of ${s.date}</div>`
+        : `<div class="eco-lbl">${s.label}</div>
+           <div class="eco-val nt">—</div>
+           <div class="eco-sub">Unavailable</div>`;
+      box.appendChild(el);
+    });
+  } catch {
+    box.innerHTML = `<div class="eco-empty">Failed to load economic data</div>`;
+  }
 }
 
 // ─── Market status ─────────────────────────────────────────────
@@ -587,16 +503,6 @@ function updateStatus() {
   else if (pre)   { txt.textContent = 'PRE-MARKET'; txt.style.color = 'var(--yellow)'; }
   else if (post)  { txt.textContent = 'AFTER HOURS';txt.style.color = 'var(--yellow)'; }
   else            { txt.textContent = 'CLOSED';      txt.style.color = 'var(--red)'; }
-}
-
-// ─── FRED key save ─────────────────────────────────────────────
-function saveFred() {
-  const k = document.getElementById('fredInput').value.trim();
-  if (!k) return;
-  fredKey = k;
-  localStorage.setItem('fredKey', k);
-  document.getElementById('fredBanner').style.display = 'none';
-  fetchFred();
 }
 
 // ─── Main fetch ────────────────────────────────────────────────
@@ -628,7 +534,6 @@ async function fetchAll() {
 
 // ─── Init ──────────────────────────────────────────────────────
 (function init() {
-  if (fredKey) document.getElementById('fredBanner').style.display = 'none';
   fetchAll();
   setInterval(fetchAll, 60000); // refresh every 60s
 })();
