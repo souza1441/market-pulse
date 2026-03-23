@@ -419,24 +419,31 @@ const FRED_SERIES = [
 let fredKey = localStorage.getItem('fredKey') || '';
 const yieldData = {};  // store raw yield prices for curve calc
 
-// ─── Proxy fetch ───────────────────────────────────────────────
+// ─── Batch fetch (one request for all symbols) ─────────────────
 const PROXY = 'https://api.allorigins.win/get?url=';
-const YF    = 'https://query1.finance.yahoo.com/v8/finance/chart/';
+const YF_QUOTE = 'https://query1.finance.yahoo.com/v7/finance/quote?fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent&symbols=';
 
-async function yfFetch(sym) {
-  const url = `${YF}${encodeURIComponent(sym)}?interval=1d&range=1d`;
+let quoteCache = {};  // symbol -> { price, change, pct }
+
+async function fetchAllQuotes() {
+  const allSymbols = [...INDEXES, ...TREASURIES, ...CREDIT, ...PRIVATE].map(i => i.s);
+  const url = YF_QUOTE + encodeURIComponent(allSymbols.join(','));
   try {
     const res  = await fetch(PROXY + encodeURIComponent(url));
     const wrap = await res.json();
     const data = JSON.parse(wrap.contents);
-    const meta = data.chart.result[0].meta;
-    const price  = meta.regularMarketPrice;
-    const prev   = meta.chartPreviousClose ?? meta.previousClose ?? price;
-    const change = price - prev;
-    const pct    = prev ? (change / prev) * 100 : 0;
-    return { price, change, pct };
+    const results = data.quoteResponse?.result ?? [];
+    const map = {};
+    results.forEach(r => {
+      map[r.symbol] = {
+        price:  r.regularMarketPrice,
+        change: r.regularMarketChange,
+        pct:    r.regularMarketChangePercent,
+      };
+    });
+    quoteCache = map;
   } catch {
-    return null;
+    quoteCache = {};
   }
 }
 
@@ -491,15 +498,11 @@ function renderCard(sym, name, desc, data, isYield) {
   return el;
 }
 
-async function loadGroup(instruments, containerId, isYield = false) {
+function renderGroup(instruments, containerId, isYield = false) {
   const box = document.getElementById(containerId);
-  box.innerHTML = instruments.map(() => skeleton()).join('');
-
-  const results = await Promise.allSettled(instruments.map(i => yfFetch(i.s)));
-
   box.innerHTML = '';
-  instruments.forEach((inst, idx) => {
-    const data = results[idx].status === 'fulfilled' ? results[idx].value : null;
+  instruments.forEach(inst => {
+    const data = quoteCache[inst.s] ?? null;
     if (isYield && data) yieldData[inst.s] = data.price;
     box.appendChild(renderCard(inst.s, inst.name, inst.desc, data, isYield));
   });
@@ -607,14 +610,24 @@ async function fetchAll() {
   document.getElementById('lastUpd').textContent =
     'Updated ' + new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
 
-  await Promise.all([
-    loadGroup(INDEXES,    'idx-cards',  false),
-    loadGroup(TREASURIES, 'tsy-cards',  true),
-    loadGroup(CREDIT,     'cred-cards', false),
-    loadGroup(PRIVATE,    'priv-cards', false),
-    fetchFred(),
-  ]);
+  // Show skeletons while loading
+  ['idx-cards','tsy-cards','cred-cards','priv-cards'].forEach(id => {
+    document.getElementById(id).innerHTML =
+      [...INDEXES,...TREASURIES,...CREDIT,...PRIVATE]
+        .slice(0,4).map(() => skeleton()).join('');
+  });
+  document.getElementById('idx-cards').innerHTML  = INDEXES.map(()=>skeleton()).join('');
+  document.getElementById('tsy-cards').innerHTML  = TREASURIES.map(()=>skeleton()).join('');
+  document.getElementById('cred-cards').innerHTML = CREDIT.map(()=>skeleton()).join('');
+  document.getElementById('priv-cards').innerHTML = PRIVATE.map(()=>skeleton()).join('');
 
+  // One batch call for all market data + FRED in parallel
+  await Promise.all([fetchAllQuotes(), fetchFred()]);
+
+  renderGroup(INDEXES,    'idx-cards',  false);
+  renderGroup(TREASURIES, 'tsy-cards',  true);
+  renderGroup(CREDIT,     'cred-cards', false);
+  renderGroup(PRIVATE,    'priv-cards', false);
   updateYieldCurve();
 }
 
